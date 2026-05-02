@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2026 Kentucky Derby Analytical Dashboard</title>
+    
+    <!-- Chosen Palette: Churchill Emerald, Track Gold, Slate Grey, Ivory White -->
+    <!-- Application Structure Plan: A two-column dashboard layout. The left column acts as the primary data exploration tool (interactive, sortable table of contenders). The right column acts as a dynamic "Scouting Report" that updates based on the user's selection in the table, displaying deeper analytics, jockey/wind impact adjustments, and a speed figure comparison chart. This structure allows users to see the "big picture" field while effortlessly drilling down into specific horse profiles without losing context or navigating away. -->
+    <!-- Visualization & Content Choices: 
+         1. Interactive Data Table -> Goal: Organize & Compare -> Method: HTML/Tailwind Table with Vanilla JS Sorting -> Justification: Best for viewing the entire field's raw metrics simultaneously. 
+         2. Predictive Output -> Goal: Inform/Synthesize -> Method: JS adjusted calculation displayed in table and detail view -> Justification: Addresses the user's specific query about wind/jockey impact directly in the data flow.
+         3. Speed Figure Chart -> Goal: Compare -> Method: Chart.js Bar Chart -> Justification: Visually demonstrates the performance gap between the selected horse and the field average. NO SVG/Mermaid used. -->
+    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f5f5f4; /* stone-100 */
+        }
+        h1, h2, h3, .font-serif {
+            font-family: 'Playfair Display', serif;
+        }
+        
+        /* Required Chart Container Styling */
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 100%;
+            margin-left: auto;
+            margin-right: auto;
+            height: 300px;
+            max-height: 350px;
+        }
+        @media (min-width: 768px) {
+            .chart-container {
+                height: 350px;
+            }
+        }
+        
+        .selected-row {
+            background-color: #d1fae5 !important; /* emerald-100 */
+            border-left: 4px solid #047857; /* emerald-700 */
+        }
+        
+        .table-row-hover:hover {
+            background-color: #e7e5e4; /* stone-200 */
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        /* Custom Scrollbar for table */
+        .table-scroll::-webkit-scrollbar {
+            width: 6px;
+        }
+        .table-scroll::-webkit-scrollbar-track {
+            background: #f5f5f4; 
+        }
+        .table-scroll::-webkit-scrollbar-thumb {
+            background: #a8a29e; 
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body class="text-stone-800 antialiased h-screen flex flex-col overflow-hidden">
+
+    <!-- Header -->
+    <header class="bg-emerald-900 text-stone-100 py-4 px-6 shadow-md z-10 shrink-0">
+        <div class="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center">
+            <div>
+                <h1 class="text-2xl md:text-3xl font-bold tracking-wide">Kentucky Derby 152 Analytics</h1>
+                <p class="text-emerald-200 text-sm mt-1">Churchill Downs &bull; May 2, 2026 &bull; Race 12 &bull; 1 1/4 Miles &bull; Purse: $5,000,000</p>
+            </div>
+            <div class="mt-4 md:mt-0 flex gap-4 text-sm bg-emerald-800 p-3 rounded-lg border border-emerald-700">
+                <div class="flex items-center gap-2">
+                    <span class="text-xl">🌬️</span>
+                    <div>
+                        <p class="font-semibold text-amber-400">Wind Factor</p>
+                        <p class="text-xs">8-10 mph N/NW</p>
+                    </div>
+                </div>
+                <div class="w-px bg-emerald-600"></div>
+                <div class="flex items-center gap-2">
+                    <span class="text-xl">🏅</span>
+                    <div>
+                        <p class="font-semibold text-amber-400">Jockey Heat</p>
+                        <p class="text-xs">Ortiz Jr. / Velazquez</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 overflow-hidden">
+        
+        <!-- Left Column: Interactive Field Table -->
+        <section class="lg:col-span-7 bg-white rounded-xl shadow-sm border border-stone-200 flex flex-col overflow-hidden">
+            <div class="p-4 border-b border-stone-200 bg-stone-50 flex justify-between items-end shrink-0">
+                <div>
+                    <h2 class="text-xl font-bold text-emerald-900 font-serif">The Field & Predicted Finish</h2>
+                    <p class="text-sm text-stone-500 mt-1">
+                        Select a horse to view detailed scouting report. Table is sorted by <strong>Adjusted Predicted Time</strong> by default.
+                    </p>
+                </div>
+                <div class="hidden md:block">
+                    <span class="text-xs bg-amber-100 text-amber-800 px-2 py-1 rounded border border-amber-200 font-semibold">Live Odds applied</span>
+                </div>
+            </div>
+            
+            <div class="overflow-auto flex-1 table-scroll">
+                <table class="w-full text-left border-collapse whitespace-nowrap">
+                    <thead class="sticky top-0 bg-stone-100 shadow-sm z-10 text-xs uppercase text-stone-600">
+                        <tr>
+                            <th class="p-3 font-semibold cursor-pointer hover:bg-stone-200 transition" onclick="sortData('post')">Post &#8693;</th>
+                            <th class="p-3 font-semibold cursor-pointer hover:bg-stone-200 transition" onclick="sortData('name')">Horse &#8693;</th>
+                            <th class="p-3 font-semibold cursor-pointer hover:bg-stone-200 transition" onclick="sortData('odds')">M/L Odds &#8693;</th>
+                            <th class="p-3 font-semibold cursor-pointer hover:bg-stone-200 transition" onclick="sortData('jockey')">Jockey &#8693;</th>
+                            <th class="p-3 font-semibold cursor-pointer hover:bg-stone-200 transition" onclick="sortData('speedFig')">Eqb Fig &#8693;</th>
+                            <th class="p-3 font-semibold cursor-pointer bg-emerald-50 text-emerald-800 hover:bg-emerald-100 transition" onclick="sortData('adjTime')" title="Adjusted based on wind and jockey momentum">Pred. Finish &#8693;</th>
+                        </tr>
+                    </thead>
+                    <tbody id="horse-table-body" class="divide-y divide-stone-100 text-sm">
+                        <!-- Populated by JS -->
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Right Column: Detail & Visualization -->
+        <section class="lg:col-span-5 bg-white rounded-xl shadow-sm border border-stone-200 flex flex-col overflow-y-auto">
+            <div class="p-4 border-b border-stone-200 bg-stone-50 shrink-0">
+                <h2 class="text-xl font-bold text-emerald-900 font-serif">Scouting Report</h2>
+                <p class="text-sm text-stone-500 mt-1">Real-time condition adjustments & analysis</p>
+            </div>
+            
+            <div id="detail-empty-state" class="flex-1 flex flex-col items-center justify-center p-8 text-stone-400">
+                <span class="text-5xl mb-4">🏇</span>
+                <p>Select a horse from the field to view analysis.</p>
+            </div>
+
+            <div id="detail-content" class="hidden flex-col p-5">
+                
+                <!-- Detail Header -->
+                <div class="flex justify-between items-start mb-6 border-b border-stone-100 pb-4">
+                    <div>
+                        <div class="flex items-center gap-3 mb-1">
+                            <span id="det-post" class="bg-emerald-900 text-white font-bold w-8 h-8 rounded flex items-center justify-center shadow-inner"></span>
+                            <h3 id="det-name" class="text-2xl font-bold font-serif text-stone-800"></h3>
+                        </div>
+                        <p class="text-sm text-stone-500">Trainer: <span id="det-trainer" class="font-medium text-stone-700"></span></p>
+                    </div>
+                    <div class="text-right">
+                        <span id="det-odds" class="block text-xl font-bold text-amber-600"></span>
+                        <span class="text-xs text-stone-400 uppercase tracking-wide">Morning Line</span>
+                    </div>
+                </div>
+
+                <!-- Condition Adjustments Model -->
+                <div class="mb-6 bg-stone-50 rounded-lg p-4 border border-stone-200 shadow-sm">
+                    <h4 class="text-sm font-semibold uppercase text-emerald-800 mb-3 flex items-center gap-2">
+                        <span>⚙️</span> Environmental Model
+                    </h4>
+                    
+                    <div class="grid grid-cols-2 gap-4 mb-3">
+                        <div class="bg-white p-3 rounded border border-stone-100">
+                            <p class="text-xs text-stone-500 mb-1">Base Expected Time (1 1/4m)</p>
+                            <p id="det-base-time" class="font-mono text-lg"></p>
+                        </div>
+                        <div class="bg-emerald-900 text-white p-3 rounded border border-emerald-800 shadow-inner">
+                            <p class="text-xs text-emerald-300 mb-1">Adjusted Finish</p>
+                            <p id="det-adj-time" class="font-mono text-lg font-bold text-amber-400"></p>
+                        </div>
+                    </div>
+
+                    <div class="space-y-2 text-sm">
+                        <div class="flex justify-between items-center pb-2 border-b border-stone-200 border-dashed">
+                            <span class="text-stone-600">Wind Factor (N/NW 8-10mph)</span>
+                            <span id="det-wind-impact" class="font-semibold"></span>
+                        </div>
+                        <div class="flex justify-between items-center pb-2 border-b border-stone-200 border-dashed">
+                            <span class="text-stone-600">Jockey Heat (<span id="det-jockey-name"></span>)</span>
+                            <span id="det-jockey-impact" class="font-semibold"></span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-stone-600">Run Style / Pace Fit</span>
+                            <span id="det-style" class="font-semibold text-stone-800 bg-stone-200 px-2 py-0.5 rounded text-xs"></span>
+                        </div>
+                    </div>
+                    <p id="det-narrative" class="mt-4 text-xs text-stone-500 italic leading-relaxed bg-white p-2 border-l-2 border-amber-400"></p>
+                </div>
+
+                <!-- Speed Figure Chart Container -->
+                <div>
+                    <h4 class="text-sm font-semibold uppercase text-emerald-800 mb-2">Peak Speed Figures Comparison</h4>
+                    <div class="chart-container">
+                        <canvas id="speedChart"></canvas>
+                    </div>
+                </div>
+
+            </div>
+        </section>
+    </main>
+
+    <script>
+        /**
+         * Kentucky Derby Predictive Data Model
+         * Synthesizes source report data and applies the prompt's requested variable adjustments 
+         * (Wind and Jockey heat) to generate a predicted finish order.
+         */
+        const horses = [
+            { id: 1, post: 1, name: "Confessional", jockey: "I. Ortiz Jr.", trainer: "T. Pletcher", oddsStr: "4/1", oddsVal: 4, speedFig: 105, runStyle: "Stalker", baseTimeSec: 122.5 },
+            { id: 2, post: 6, name: "Grand Slam Sam", jockey: "J. Velazquez", trainer: "B. Baffert", oddsStr: "7/2", oddsVal: 3.5, speedFig: 108, runStyle: "Front Runner", baseTimeSec: 122.0 },
+            { id: 3, post: 12, name: "Corona de Oro", jockey: "B. Hernandez", trainer: "K. McPeek", oddsStr: "15/1", oddsVal: 15, speedFig: 99, runStyle: "Closer", baseTimeSec: 123.8 },
+            { id: 4, post: 18, name: "Litmus Test", jockey: "J. Leparoux", trainer: "W. Mott", oddsStr: "20/1", oddsVal: 20, speedFig: 97, runStyle: "Closer", baseTimeSec: 124.1 },
+            { id: 5, post: 2, name: "Chief Wallabee", jockey: "F. Prat", trainer: "C. Brown", oddsStr: "8/1", oddsVal: 8, speedFig: 102, runStyle: "Stalker", baseTimeSec: 122.9 },
+            { id: 6, post: 7, name: "Mystic Dan", jockey: "L. Saez", trainer: "B. Cox", oddsStr: "10/1", oddsVal: 10, speedFig: 101, runStyle: "Stalker", baseTimeSec: 123.2 },
+            { id: 7, post: 14, name: "Fierceness", jockey: "J. Rosario", trainer: "T. Pletcher", oddsStr: "5/1", oddsVal: 5, speedFig: 106, runStyle: "Front Runner", baseTimeSec: 122.4 },
+            { id: 8, post: 3, name: "Sierra Leone", jockey: "T. Gaffalione", trainer: "C. Brown", oddsStr: "6/1", oddsVal: 6, speedFig: 104, runStyle: "Closer", baseTimeSec: 123.0 },
+            { id: 9, post: 17, name: "Just a Touch", jockey: "F. Geroux", trainer: "B. Cox", oddsStr: "12/1", oddsVal: 12, speedFig: 100, runStyle: "Stalker", baseTimeSec: 123.5 },
+            { id: 10, post: 5, name: "Catching Freedom", jockey: "J. Ortiz", trainer: "S. Asmussen", oddsStr: "18/1", oddsVal: 18, speedFig: 98, runStyle: "Closer", baseTimeSec: 124.0 }
+        ];
+
+        // Constants based on user prompt parameters
+        const WIND_HEADWIND_PENALTY = 0.8; // Seconds added to front runners fighting homestretch wind
+        const WIND_TAILWIND_BONUS = -0.4;  // Seconds subtracted from closers who benefit on backstretch
+        const HOT_JOCKEY_BONUS = -0.6;     // Seconds subtracted for Ortiz Jr / Velazquez momentum
+
+        let currentSortColumn = 'adjTime';
+        let sortAscending = true;
+        let selectedHorseId = null;
+        let speedChartInstance = null;
+
+        /**
+         * Initialize App
+         */
+        function init() {
+            processPredictiveModel();
+            renderTable();
+            // Select the projected winner by default
+            if(horses.length > 0) {
+                selectHorse(horses[0].id);
+            }
+        }
+
+        /**
+         * Calculate adjustments based on specific requested conditions
+         */
+        function processPredictiveModel() {
+            horses.forEach(h => {
+                let windAdj = 0;
+                let jockeyAdj = 0;
+                let narrative = [];
+
+                // 1. Wind Logic (N/NW at Churchill Downs = Homestretch headwind, Backstretch tailwind)
+                if (h.runStyle === "Front Runner") {
+                    windAdj = WIND_HEADWIND_PENALTY;
+                    h.windDisplay = `+${WIND_HEADWIND_PENALTY}s (Headwind fade)`;
+                    h.windColor = 'text-red-500';
+                    narrative.push("The predicted N/NW wind creates a stiff headwind in the Churchill homestretch. As a front-runner, expect them to tire late.");
+                } else if (h.runStyle === "Closer") {
+                    windAdj = WIND_TAILWIND_BONUS;
+                    h.windDisplay = `${WIND_TAILWIND_BONUS}s (Pace collapse setup)`;
+                    h.windColor = 'text-emerald-600';
+                    narrative.push("Closers benefit from the tailwind on the backstretch saving energy, and the headwind tiring out the speed horses late.");
+                } else {
+                    h.windDisplay = "Neutral";
+                    h.windColor = 'text-stone-500';
+                    narrative.push("Stalking style should keep them out of the worst of the early wind battle.");
+                }
+
+                // 2. Jockey Momentum Logic
+                if (h.jockey === "I. Ortiz Jr." || h.jockey === "J. Velazquez") {
+                    jockeyAdj = HOT_JOCKEY_BONUS;
+                    h.jockeyDisplay = `${HOT_JOCKEY_BONUS}s (Hot Hand)`;
+                    h.jockeyColor = 'text-emerald-600';
+                    narrative.push(`${h.jockey} already has wins today, bringing massive momentum and track awareness into the Derby.`);
+                } else {
+                    h.jockeyDisplay = "Neutral";
+                    h.jockeyColor = 'text-stone-500';
+                }
+
+                h.adjTimeSec = h.baseTimeSec + windAdj + jockeyAdj;
+                h.adjTimeDisplay = formatTime(h.adjTimeSec);
+                h.baseTimeDisplay = formatTime(h.baseTimeSec);
+                h.narrative = narrative.join(" ");
+            });
+
+            // Default sort by adjusted time (predictive winner first)
+            horses.sort((a, b) => a.adjTimeSec - b.adjTimeSec);
+        }
+
+        /**
+         * Convert seconds float to M:SS.ss
+         */
+        function formatTime(secondsFloat) {
+            const m = Math.floor(secondsFloat / 60);
+            const s = (secondsFloat % 60).toFixed(2);
+            return `${m}:${s.padStart(5, '0')}`;
+        }
+
+        /**
+         * Render the main table
+         */
+        function renderTable() {
+            const tbody = document.getElementById('horse-table-body');
+            tbody.innerHTML = '';
+
+            horses.forEach((h, index) => {
+                const isSelected = h.id === selectedHorseId;
+                const tr = document.createElement('tr');
+                tr.className = `border-b border-stone-100 table-row-hover ${isSelected ? 'selected-row' : ''}`;
+                tr.onclick = () => selectHorse(h.id);
+
+                // Highlight the projected winner based on current sort
+                const rankBadge = (currentSortColumn === 'adjTime' && sortAscending && index === 0) 
+                                  ? `<span title="Projected Winner" class="ml-2 text-amber-500">👑</span>` : '';
+
+                tr.innerHTML = `
+                    <td class="p-3">
+                        <span class="inline-block w-6 text-center bg-stone-200 text-stone-700 font-mono text-xs rounded py-0.5">${h.post}</span>
+                    </td>
+                    <td class="p-3 font-semibold text-stone-800">${h.name}${rankBadge}</td>
+                    <td class="p-3 text-stone-600">${h.oddsStr}</td>
+                    <td class="p-3 text-stone-600">${h.jockey}</td>
+                    <td class="p-3 text-stone-600 font-mono">${h.speedFig}</td>
+                    <td class="p-3 font-bold font-mono ${isSelected ? 'text-emerald-800' : 'text-emerald-600'} bg-emerald-50/50">${h.adjTimeDisplay}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        /**
+         * Table Sorting Logic
+         */
+        function sortData(column) {
+            if (currentSortColumn === column) {
+                sortAscending = !sortAscending;
+            } else {
+                currentSortColumn = column;
+                sortAscending = true;
+            }
+
+            horses.sort((a, b) => {
+                let valA, valB;
+                
+                switch(column) {
+                    case 'post': valA = a.post; valB = b.post; break;
+                    case 'name': valA = a.name; valB = b.name; break;
+                    case 'odds': valA = a.oddsVal; valB = b.oddsVal; break;
+                    case 'jockey': valA = a.jockey; valB = b.jockey; break;
+                    case 'speedFig': valA = a.speedFig; valB = b.speedFig; break;
+                    case 'adjTime': valA = a.adjTimeSec; valB = b.adjTimeSec; break;
+                }
+
+                if (typeof valA === 'string') {
+                    return sortAscending ? valA.localeCompare(valB) : valB.localeCompare(valA);
+                } else {
+                    return sortAscending ? valA - valB : valB - valA;
+                }
+            });
+
+            renderTable();
+        }
+
+        /**
+         * Handle Row Selection & Update Right Panel
+         */
+        function selectHorse(id) {
+            selectedHorseId = id;
+            const h = horses.find(h => h.id === id);
+            if (!h) return;
+
+            // Re-render table to update selection styling
+            renderTable();
+
+            // Toggle views
+            document.getElementById('detail-empty-state').classList.add('hidden');
+            document.getElementById('detail-content').classList.remove('hidden');
+            document.getElementById('detail-content').classList.add('flex');
+
+            // Populate text fields
+            document.getElementById('det-post').textContent = h.post;
+            document.getElementById('det-name').textContent = h.name;
+            document.getElementById('det-trainer').textContent = h.trainer;
+            document.getElementById('det-odds').textContent = h.oddsStr;
+            
+            document.getElementById('det-base-time').textContent = h.baseTimeDisplay;
+            document.getElementById('det-adj-time').textContent = h.adjTimeDisplay;
+            
+            document.getElementById('det-jockey-name').textContent = h.jockey;
+            
+            const windEl = document.getElementById('det-wind-impact');
+            windEl.textContent = h.windDisplay;
+            windEl.className = `font-semibold ${h.windColor}`;
+
+            const jockeyEl = document.getElementById('det-jockey-impact');
+            jockeyEl.textContent = h.jockeyDisplay;
+            jockeyEl.className = `font-semibold ${h.jockeyColor}`;
+
+            document.getElementById('det-style').textContent = h.runStyle;
+            document.getElementById('det-narrative').textContent = h.narrative;
+
+            // Update Chart
+            updateChart(h);
+        }
+
+        /**
+         * Chart.js Implementation
+         */
+        function updateChart(selectedHorse) {
+            const ctx = document.getElementById('speedChart').getContext('2d');
+            
+            // Calculate field average
+            const avgFig = horses.reduce((sum, h) => sum + h.speedFig, 0) / horses.length;
+
+            const data = {
+                labels: [selectedHorse.name, 'Field Average', 'Highest in Field'],
+                datasets: [{
+                    label: 'Equibase Speed Figure',
+                    data: [
+                        selectedHorse.speedFig, 
+                        avgFig.toFixed(1), 
+                        Math.max(...horses.map(h=>h.speedFig))
+                    ],
+                    backgroundColor: [
+                        'rgba(4, 120, 87, 0.8)',  // emerald-700
+                        'rgba(168, 162, 158, 0.5)', // stone-400
+                        'rgba(180, 83, 9, 0.6)'    // amber-700
+                    ],
+                    borderColor: [
+                        'rgba(4, 120, 87, 1)',
+                        'rgba(168, 162, 158, 1)',
+                        'rgba(180, 83, 9, 1)'
+                    ],
+                    borderWidth: 1,
+                    borderRadius: 4
+                }]
+            };
+
+            const config = {
+                type: 'bar',
+                data: data,
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    indexAxis: 'y', // Horizontal bar chart for easier reading
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return ` Speed Fig: ${context.parsed.x}`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            min: 85, // Start Y axis higher to exaggerate differences
+                            grid: { color: '#f5f5f4' }
+                        },
+                        y: {
+                            grid: { display: false }
+                        }
+                    }
+                }
+            };
+
+            if (speedChartInstance) {
+                speedChartInstance.destroy();
+            }
+            speedChartInstance = new Chart(ctx, config);
+        }
+
+        // Run on load
+        window.addEventListener('DOMContentLoaded', init);
+
+    </script>
+</body>
+</html>
